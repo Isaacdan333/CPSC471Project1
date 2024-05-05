@@ -9,6 +9,7 @@ Anything special about your submission that we should take note
 ## Names and emails
 Isaac Koczwara - isaackoz@csu.fullerton.edu
 Isaac Perez - isaacdan@csu.fullerton.edu
+Ulysses Carbajal - Ulysses@csu.fullerton.edu
 
 ## Programming language
 Python
