@@ -14,16 +14,17 @@ def handle_client(conn_sock, client_address):
 
             print(f"Received command: '{command}' from {client_address}")
 
-            if command.lower() == "ls":
+            parts = command.split(' ', 1)
+            cmd = parts[0].lower()
+            file_name = parts[1] if len(parts) > 1 else None
+
+            if cmd == "ls":
                 list_directory(conn_sock)
-            elif command.lower().startswith("put "):
-                _, file_name = command.split(maxsplit=1)
-                receive_file(conn_sock, file_name.strip())
-            elif command.lower().startswith("get "):
-                _, file_name = command.split(maxsplit=1)
-                send_file(conn_sock, file_name.strip())
-            elif command.lower() == "quit":
-                print(f"Client {client_address} has quit the session.")
+            elif cmd == "put" and file_name:
+                receive_file(conn_sock, file_name)
+            elif cmd == "get" and file_name:
+                send_file(conn_sock, file_name)
+            elif cmd == "quit":
                 break  # End the session if 'quit' command is received
             else:
                 print("Unsupported command received.")
@@ -43,13 +44,14 @@ def list_directory(conn_sock):
 
 def receive_file(conn_sock, file_name):
     try:
-        data_size = int(conn_sock.recv(10).decode().strip())
+        data_size_str = conn_sock.recv(10).decode().strip()
+        data_size = int(data_size_str)
         file_data = b''
         while len(file_data) < data_size:
             file_data += conn_sock.recv(data_size - len(file_data))
         with open(file_name, 'wb') as file:
             file.write(file_data)
-        print(f"Received file '{file_name}' from client.")
+            print(f"Received file '{file_name}' from client. Total bytes received: {data_size} bytes.")
     except Exception as e:
         print(f"Error receiving file: {e}")
 
@@ -59,10 +61,10 @@ def send_file(conn_sock, file_name):
             file_data = file.read()
             data_size_str = f"{len(file_data):010d}"
             conn_sock.sendall(data_size_str.encode('utf-8') + file_data)
-            print(f"Sent file '{file_name}' to client.")
+        print(f"Sent file '{file_name}' to client.")
     except FileNotFoundError:
         print(f"File not found: {file_name}")
-        conn_sock.sendall(b'0000000000')
+        conn_sock.sendall(b'0000000000')  # Send a zero-length data size if file not found debuggin
     except Exception as e:
         print(f"Error sending file: {e}")
 
