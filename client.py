@@ -25,32 +25,33 @@ def send_file(conn_sock, file_name):
     """Send a file to the server using PUT command."""
     try:
         with open(file_name, 'rb') as file:
-            while True:
-                file_data = file.read(65536)
-                if not file_data:
-                    break
-                data_size_str = f"{len(file_data):010d}"
-                conn_sock.sendall(data_size_str.encode('utf-8') + file_data)
+            file_data = file.read()
+            data_size_str = f"{len(file_data):010d}"
+            conn_sock.sendall((f"put {file_name}\n").encode('utf-8'))  
+            conn_sock.sendall(data_size_str.encode('utf-8') + file_data)
         print("File sent successfully.")
     except FileNotFoundError:
-        print(f"File not found: {file_name}")
+        print(f"FAILURE: File not found: {file_name}")
     except Exception as e:
         print(f"Error sending file: {e}")
 
 def receive_file(conn_sock, file_name):
     """Receive a file from the server using GET command."""
     try:
-        data_size_str = conn_sock.recv(10).decode('utf-8')
-        if data_size_str:
-            data_size = int(data_size_str.strip())
-            file_data = b''
-            while len(file_data) < data_size:
-                file_data += conn_sock.recv(data_size - len(file_data))
-            with open(file_name, 'wb') as file:
-                file.write(file_data)
-            print(f"Received file '{file_name}' successfully.")
-        else:
-            print("Server has sent an empty response. Possible error with file retrieval.")
+        data_size_str = conn_sock.recv(10).decode('utf-8').strip()
+        data_size = int(data_size_str)
+        if data_size == 0:
+            print("FAILURE: File not found on server.")
+            return
+
+        file_data = b''
+        while len(file_data) < data_size:
+            file_data += conn_sock.recv(data_size - len(file_data))
+        
+        with open(file_name, 'wb') as file:
+            file.write(file_data)
+        
+        print(f"Received file '{file_name}' successfully. Total bytes received: {data_size} bytes.")
     except Exception as e:
         print(f"Error receiving file: {e}")
 
@@ -71,6 +72,7 @@ def main():
                 send_file(conn_sock, file_name)
             elif command.lower().startswith("get"):
                 _, file_name = command.split(maxsplit=1)
+                send_command(conn_sock, f"get {file_name.strip()}")  
                 receive_file(conn_sock, file_name)
             elif command.lower() == "quit":
                 send_command(conn_sock, "QUIT")
