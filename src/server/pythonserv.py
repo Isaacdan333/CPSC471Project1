@@ -102,9 +102,19 @@ class SocketServer:
         print(f"File sent: {filename}")
 
     def receive_file(self, data_socket, filename):
-        header = data_socket.recv(1024).decode()
-        _, size = header.split()
-        size = int(size)
+        try:
+            header = b''
+            # Read byte by byte until we get a newline, which indicates the end of the header
+            while True:
+                part = data_socket.recv(1)
+                if part == b'\n':
+                    break
+                header += part
+            _, size = header.decode().split()
+            size = int(size)
+        except ValueError:
+            print("Error parsing size header")
+            return
 
         with open(filename, 'wb') as file:
             received = 0
