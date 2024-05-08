@@ -2,6 +2,7 @@ import socket
 import os
 import threading
 from datetime import datetime
+import random
 
 def recv_all(sock, num_bytes):
     """ Helper function to receive the specified number of bytes from the socket. """
@@ -23,25 +24,53 @@ def handle_client(client_sock, addr):
             print(f"[{datetime.now()}] - Command received from {addr}: {command}")
 
             if command.startswith('get'):
+                data_port = random.randint(2000, 9000)
+                print("Data channel created:", data_port)
+                data_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                data_sock.bind(('', data_port))
+                data_sock.listen(1)
+
+                client_sock.sendall(str(data_port).encode())
+
+                data_conn, data_addr = data_sock.accept()
+
                 file_name = command[4:]
                 if os.path.isfile(file_name):
                     with open(file_name, 'rb') as file:
                         file_data = file.read()
                         file_size = len(file_data)
                         size_header = f"{file_size:010d}".encode() + file_data
-                        client_sock.sendall(size_header)
+                        data_conn.sendall(size_header)
                         print(f"[{datetime.now()}] - Sent '{file_name}' ({file_size} bytes) to {addr}. Success!")
                 else:
-                    client_sock.sendall(b'0000000000')
+                    data_conn.sendall(b'0000000000')
                     print(f"[{datetime.now()}] - File not found: '{file_name}'. Failure!")
+                
+                data_conn.close()
+                data_sock.close()
+                print("Closed data channel:", data_port)
 
             elif command.startswith('put'):
-                file_size = int(client_sock.recv(10).decode())
-                file_data = recv_all(client_sock, file_size)
+                data_port = random.randint(2000, 9000)
+                print("Data channel created:", data_port)
+                data_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                data_sock.bind(('', data_port))
+                data_sock.listen(1)
+
+                client_sock.sendall(str(data_port).encode())
+
+                data_conn, data_addr = data_sock.accept()
+
                 file_name = command[4:]
+                file_size = int(recv_all(data_conn, 10).decode())
+                file_data = recv_all(data_conn, file_size)
                 with open(file_name, 'wb') as file:
                     file.write(file_data)
                 print(f"[{datetime.now()}] - Received and saved '{file_name}' ({file_size} bytes) from {addr}. Success!")
+
+                data_conn.close()
+                data_sock.close()
+                print("Closed data channel:", data_port)
 
             elif command.startswith('ls'):
                 directory_listing = "\n".join(os.listdir('.'))

@@ -31,23 +31,37 @@ def main():
 
             if user_input.startswith("get"):
                 file_name = user_input.split()[1]
-                file_size = int(recv_all(conn_sock, 10).decode())
+                data_port = int(conn_sock.recv(1024).decode())
+                data_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                data_conn.connect((server_addr, data_port))
+                print("Data channel:", data_port)
+
+                file_size = int(recv_all(data_conn, 10).decode())
                 if file_size == 0:
                     print("Server response: File does not exist!")
                 else:
-                    file_data = recv_all(conn_sock, file_size).decode()
+                    file_data = recv_all(data_conn, file_size).decode()
                     print(f"Server response: Received '{file_name}' ({file_size} bytes).")
                     print(f"File content:\n{file_data}\n")
+                data_conn.close()
+
             elif user_input.startswith("put"):
+                data_port = int(conn_sock.recv(1024).decode())
+                data_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                data_conn.connect((server_addr, data_port))
+                print("Data channel:", data_port)
+
                 file_name = user_input.split()[1]
                 try:
                     with open(file_name, 'rb') as f:
-                        data = f.read()
-                        size = f"{len(data):010d}"
-                        conn_sock.send(size.encode() + data)
+                        file_data = f.read()
+                        size = f"{len(file_data):010d}"
+                        data_conn.send(size.encode() + file_data)
                     print("Server response: File sent successfully!")
                 except FileNotFoundError:
                     print("Local error: File does not exist.")
+                data_conn.close()
+                
             elif user_input.startswith("ls"):
                 file_size = int(recv_all(conn_sock, 10).decode())
                 directory_listing = recv_all(conn_sock, file_size).decode()
