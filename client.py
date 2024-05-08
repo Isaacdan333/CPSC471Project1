@@ -40,19 +40,34 @@ def send_file(conn_sock, file_name):
 def receive_file(conn_sock, file_name):
     """Receive a file from the server using GET command."""
     try:
-        data_size_str = conn_sock.recv(10).decode('utf-8')
-        if data_size_str:
-            data_size = int(data_size_str.strip())
+        # Receive the data size string from the server
+        data_size_str = b''
+        while len(data_size_str) < 10:
+            chunk = conn_sock.recv(10 - len(data_size_str))
+            if not chunk:
+                break
+            data_size_str += chunk
+
+        if len(data_size_str) == 10:
+            data_size = int(data_size_str.decode('utf-8').strip())
             file_data = b''
             while len(file_data) < data_size:
-                file_data += conn_sock.recv(data_size - len(file_data))
-            with open(file_name, 'wb') as file:
-                file.write(file_data)
-            print(f"Received file '{file_name}' successfully.")
+                chunk = conn_sock.recv(min(65536, data_size - len(file_data)))
+                if not chunk:
+                    break
+                file_data += chunk
+
+            if len(file_data) == data_size:
+                with open(file_name, 'wb') as file:
+                    file.write(file_data)
+                print(f"Received file '{file_name}' successfully.")
+            else:
+                print("Incomplete file data received.")
         else:
-            print("Server has sent an empty response. Possible error with file retrieval.")
+            print("Failed to receive data size from the server.")
     except Exception as e:
         print(f"Error receiving file: {e}")
+
 
 def main():
     if len(sys.argv) < 3:
