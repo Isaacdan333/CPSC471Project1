@@ -1,99 +1,85 @@
 import socket
 import os
-import sys
 import threading
-import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
-def handle_client(conn_sock, client_address):
+def recv_all(sock, num_bytes):
+    """ Helper function to receive the specified number of bytes from the socket. """
+    recv_buff = b''
+    while len(recv_buff) < num_bytes:
+        packet = sock.recv(num_bytes - len(recv_buff))
+        if not packet:
+            return None
+        recv_buff += packet
+    return recv_buff
+
+def handle_client(client_sock, addr):
     try:
         while True:
-            command = conn_sock.recv(1024).decode('utf-8').strip()
+            command = client_sock.recv(1024).decode().strip()
             if not command:
-                break  # If no command, exit the loop
+                continue
+            
+            print(f"[{datetime.now()}] - Command received from {addr}: {command}")
 
-            print(f"Received command: '{command}' from {client_address}")
+            if command.startswith('get'):
+                file_name = command[4:]
+                if os.path.isfile(file_name):
+                    with open(file_name, 'rb') as file:
+                        file_data = file.read()
+                        file_size = len(file_data)
+                        size_header = f"{file_size:010d}".encode() + file_data
+                        client_sock.sendall(size_header)
+                        print(f"[{datetime.now()}] - Sent '{file_name}' ({file_size} bytes) to {addr}. Success!")
+                else:
+                    client_sock.sendall(b'0000000000')
+                    print(f"[{datetime.now()}] - File not found: '{file_name}'. Failure!")
 
-            if command.lower() == "ls":
-                list_directory(conn_sock)
-            elif command.lower().startswith("put "):
-                _, file_name = command.split(maxsplit=1)
-                receive_file(conn_sock, file_name.strip())
-            elif command.lower().startswith("get "):
-                _, file_name = command.split(maxsplit=1)
-                send_file(conn_sock, file_name.strip())
-            elif command.lower() == "quit":
-                print(f"Client {client_address} has quit the session.")
-                break  # End the session if 'quit' command is received
-            else:
-                print("Unsupported command received.")
+            elif command.startswith('put'):
+                file_size = int(client_sock.recv(10).decode())
+                file_data = recv_all(client_sock, file_size)
+                file_name = command[4:]
+                with open(file_name, 'wb') as file:
+                    file.write(file_data)
+                print(f"[{datetime.now()}] - Received and saved '{file_name}' ({file_size} bytes) from {addr}. Success!")
+
+            elif command.startswith('ls'):
+                directory_listing = "\n".join(os.listdir('.'))
+                size_str = f"{len(directory_listing):010d}".encode() + directory_listing.encode()
+                client_sock.sendall(size_str)
+                print(f"[{datetime.now()}] - Sent directory listing to {addr}. Success!")
+
+            elif command == 'quit':
+                print(f"[{datetime.now()}] - {addr} requested to end the session. Quitting.")
+                break
+
     except Exception as e:
-        print(f"Error handling client {client_address}: {e}")
+        print(f"[{datetime.now()}] - Error handling client {addr}: {str(e)}")
     finally:
-        conn_sock.close()
-
-def list_directory(conn_sock):
-    try:
-        directory_contents = os.listdir('.')
-        directory_response = "\n".join(directory_contents) + "\n"
-        conn_sock.sendall(directory_response.encode('utf-8'))
-    except Exception as e:
-        print("Failed to list directory:", e)
-        conn_sock.sendall("Failed to list directory.\n".encode('utf-8'))
-
-def receive_file(conn_sock, file_name):
-    try:
-        data_size = int(conn_sock.recv(10).decode().strip())
-        file_data = b''
-        while len(file_data) < data_size:
-            file_data += conn_sock.recv(data_size - len(file_data))
-        with open(file_name, 'wb') as file:
-            file.write(file_data)
-        print(f"Received file '{file_name}' from client.")
-    except Exception as e:
-        print(f"Error receiving file: {e}")
-
-def send_file(conn_sock, file_name):
-    try:
-        with open(file_name, 'rb') as file:
-            file_data = file.read()
-            data_size_str = f"{len(file_data):010d}"
-            conn_sock.sendall(data_size_str.encode('utf-8') + file_data)
-            print(f"Sent file '{file_name}' to client.")
-    except FileNotFoundError:
-        print(f"File not found: {file_name}")
-        conn_sock.sendall(b'0000000000')
-    except Exception as e:
-        print(f"Error sending file: {e}")
+        client_sock.close()
+        print(f"[{datetime.now()}] - Connection with {addr} closed.")
 
 def server_status():
     while True:
-        print(f"{datetime.now().isoformat()} - Server is running...")
-        time.sleep(60)
+        print(f"[{datetime.now()}] - Server is running...")
+        threading.Event().wait(60)
 
 def start_server(port):
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_sock.bind(('', port))
-    server_sock.listen(5)
-    print(f"Server listening on port {port}")
-    
-    threading.Thread(target=server_status, daemon=True).start()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_sock:
+        server_sock.bind(('', port))
+        server_sock.listen()
+        print(f"[{datetime.now()}] - Server listening on port {port}")
 
-    try:
         while True:
-            conn_sock, client_address = server_sock.accept()
-            print(f"Accepted connection from {client_address}")
-            threading.Thread(target=handle_client, args=(conn_sock, client_address)).start()
-    except KeyboardInterrupt:
-        print('Server shutdown requested.')
-    finally:
-        server_sock.close()
-        print("Server has been shut down.")
+            client_sock, addr = server_sock.accept()
+            print(f"[{datetime.now()}] - Accepted connection from {addr}")
+            threading.Thread(target=handle_client, args=(client_sock, addr)).start()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("USAGE: python server.py <PORT>")
+    import sys
+    if len(sys.argv) != 2:
+        print(f"USAGE: python {sys.argv[0]} <PORT>")
         sys.exit(1)
-
-    server_port = int(sys.argv[1])
-    start_server(server_port)
+    port = int(sys.argv[1])
+    threading.Thread(target=server_status, daemon=True).start()
+    start_server(port)

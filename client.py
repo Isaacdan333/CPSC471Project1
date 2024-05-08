@@ -1,99 +1,62 @@
 import socket
 import sys
 
-def connect_to_server(server_addr, server_port):
-    """Establish a connection to the FTP server."""
-    try:
-        conn_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        conn_sock.connect((server_addr, server_port))
-        return conn_sock
-    except Exception as e:
-        print(f"Failed to connect to the server: {e}")
-        sys.exit(1)
-
-def send_command(conn_sock, command):
-    """Send a command to the FTP server and print the response."""
-    try:
-        conn_sock.sendall((command.strip() + "\n").encode('utf-8'))
-        response = conn_sock.recv(4096).decode('utf-8')
-        print(f"Server response: {response}")
-    except Exception as e:
-        print(f"Error sending command to server or receiving response: {e}")
-        sys.exit(1)
-
-def send_file(conn_sock, file_name):
-    """Send a file to the server using PUT command."""
-    try:
-        with open(file_name, 'rb') as file:
-            while True:
-                file_data = file.read(65536)
-                if not file_data:
-                    break
-                data_size_str = f"{len(file_data):010d}"
-                conn_sock.sendall(data_size_str.encode('utf-8') + file_data)
-        print("File sent successfully.")
-    except FileNotFoundError:
-        print(f"File not found: {file_name}")
-    except Exception as e:
-        print(f"Error sending file: {e}")
-
-def receive_file(conn_sock, file_name):
-    """Receive a file from the server using GET command."""
-    try:
-        # Receive the data size string from the server
-        data_size_str = b''
-        while len(data_size_str) < 10:
-            chunk = conn_sock.recv(10 - len(data_size_str))
-            if not chunk:
-                break
-            data_size_str += chunk
-
-        if len(data_size_str) == 10:
-            data_size = int(data_size_str.decode('utf-8').strip())
-            file_data = b''
-            while len(file_data) < data_size:
-                chunk = conn_sock.recv(min(65536, data_size - len(file_data)))
-                if not chunk:
-                    break
-                file_data += chunk
-
-            if len(file_data) == data_size:
-                with open(file_name, 'wb') as file:
-                    file.write(file_data)
-                print(f"Received file '{file_name}' successfully.")
-            else:
-                print("Incomplete file data received.")
-        else:
-            print("Failed to receive data size from the server.")
-    except Exception as e:
-        print(f"Error receiving file: {e}")
-
+def recv_all(sock, num_bytes):
+    """ Helper function to receive the specified number of bytes from the socket. """
+    recv_buff = b''
+    while len(recv_buff) < num_bytes:
+        packet = sock.recv(num_bytes - len(recv_buff))
+        if not packet:
+            return None
+        recv_buff += packet
+    return recv_buff
 
 def main():
     if len(sys.argv) < 3:
-        print("USAGE: python client.py <SERVER ADDRESS> <SERVER PORT>")
+        print(f"USAGE: python {sys.argv[0]} <SERVER ADDRESS> <SERVER PORT>")
         sys.exit(1)
-
+    
     server_addr = sys.argv[1]
     server_port = int(sys.argv[2])
-    conn_sock = connect_to_server(server_addr, server_port)
 
-    try:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn_sock:
+        conn_sock.connect((server_addr, server_port))
+
         while True:
-            command = input("ftp> ")
-            if command.lower().startswith("put"):
-                _, file_name = command.split(maxsplit=1)
-                send_file(conn_sock, file_name)
-            elif command.lower().startswith("get"):
-                _, file_name = command.split(maxsplit=1)
-                receive_file(conn_sock, file_name)
-            elif command.lower() == "quit":
-                send_command(conn_sock, "QUIT")
+            user_input = input("ftp> ").strip()
+            if not user_input:
+                continue
+            
+            conn_sock.send(user_input.encode())
+
+            if user_input.startswith("get"):
+                file_name = user_input.split()[1]
+                file_size = int(recv_all(conn_sock, 10).decode())
+                if file_size == 0:
+                    print("Server response: File does not exist!")
+                else:
+                    file_data = recv_all(conn_sock, file_size).decode()
+                    print(f"Server response: Received '{file_name}' ({file_size} bytes).")
+                    print(f"File content:\n{file_data}\n")
+            elif user_input.startswith("put"):
+                file_name = user_input.split()[1]
+                try:
+                    with open(file_name, 'rb') as f:
+                        data = f.read()
+                        size = f"{len(data):010d}"
+                        conn_sock.send(size.encode() + data)
+                    print("Server response: File sent successfully!")
+                except FileNotFoundError:
+                    print("Local error: File does not exist.")
+            elif user_input.startswith("ls"):
+                file_size = int(recv_all(conn_sock, 10).decode())
+                directory_listing = recv_all(conn_sock, file_size).decode()
+                print(f"Server response: List of documents:\n{directory_listing}")
+            elif user_input == "quit":
+                print("Server response: Session ended.")
                 break
             else:
-                send_command(conn_sock, command)
-    finally:
-        conn_sock.close()
+                print("Invalid command, try again.")
 
 if __name__ == "__main__":
     main()
